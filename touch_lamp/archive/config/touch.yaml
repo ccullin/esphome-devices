@@ -1,0 +1,37 @@
+# config/touch.yaml
+
+esp32_touch:
+  setup_mode: FALSE
+
+binary_sensor:
+  - platform: esp32_touch
+    id: lamp_touch_sensor # Unique ID for your touch sensor
+    pin: GPIO15
+    threshold: 800
+    on_press:
+      then:
+        - light.turn_on: lamp2
+        - lambda: |-
+            ESP_LOGD("touch_control", "!!! ON_PRESS LAMBDA EXECUTED !!!");
+
+            // Define your brightness levels as a list of floats (0.0 to 1.0)
+            std::vector<float> brightness_levels = {0.0, 0.25, 0.50, 1.00}; // Off, Low, Medium, High
+
+            // Get the current brightness index from our global variable
+            int current_index = id(current_brightness_index);
+
+            // Calculate the next index, cycling back to 0 after the last level
+            // The modulo operator (%) correctly handles cycling through 0, 1, 2, 3, then back to 0.
+            current_index = (current_index + 1) % brightness_levels.size();
+
+            // Get the actual brightness value for the new index
+            float new_brightness = brightness_levels[current_index];
+
+            // Turn the light ON to the new brightness level. with 0 the light will effectively turn off.
+            id(lamp2).turn_on().set_brightness(new_brightness).perform();
+            // id(my_custom_led_output).write_state(new_brightness);
+
+            // Store the new index in the global variable so it's remembered for the next touch
+            id(current_brightness_index) = current_index;
+
+            ESP_LOGD("touch_control", "Touch detected. New brightness level: %.2f (Index %d)", new_brightness, current_index);

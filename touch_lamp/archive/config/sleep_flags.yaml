@@ -1,0 +1,20 @@
+# enable sleep and wakeup
+deep_sleep:
+  id: deep_sleep_control
+  esp32_ext1_wakeup:
+    pins:
+      - GPIO15
+      - GPIO12
+    mode: ANY_HIGH
+
+# allow home assitant to set a flag to prevent sleep
+binary_sensor:
+  - platform: homeassistant
+    id: sleep_devices
+    entity_id: input_boolean.prevent_sleep
+    on_release:
+      - logger.log: "Preventing sleep"
+      - deep_sleep.prevent: deep_sleep_control
+    on_press:
+      - logger.log: "Allowing deep sleep"
+      - deep_sleep.allow: deep_sleep_control

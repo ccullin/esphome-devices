@@ -1,0 +1,148 @@
+# enable sleep and wakeup
+deep_sleep:
+  id: lamp_deep_sleep
+  # touch_wakeup: true
+  # esp32_ext1_wakeup:
+  #   pins:
+  #     number: 15 # detect_usb
+  #     allow_other_uses: true
+  #   mode: ALL_LOW # wake up when usb Vin is connected (i.e. detected_usb is low)
+
+# light_sleep:
+#   id: lamp_light_sleep
+#   touch_wakeup: true
+#   esp32_ext1_wakeup:
+#     pins:
+#       number: 15 # detect_usb
+#       allow_other_uses: true
+#     mode: ALL_LOW # wake up when usb Vin is connected (i.e. detected_usb is low)
+
+light_sleep:
+  id: lamp_light_sleep
+  # touch_wakeup: true
+  # wakeup_pin:
+  #   number: GPIO15
+  #   inverted: false # If USB is HIGH when plugged, use inverted: true
+  #   mode:
+  #     input: true
+  #   allow_other_uses: true
+  # - pin:
+  #   number: GPIO32 # touch pad
+  #   mode: TOUCH
+
+# allow home assitant to set a flag to prevent sleep
+binary_sensor:
+  - platform: homeassistant
+    name: "prevent sleep"
+    id: prevent_sleep
+    entity_id: input_boolean.prevent_sleep
+    on_press:
+      - logger.log: "Preventing sleep"
+      - deep_sleep.prevent: lamp_deep_sleep
+      - light_sleep.prevent: lamp_light_sleep
+    on_release:
+      - logger.log: "Allowing deep sleep"
+      - deep_sleep.allow: lamp_deep_sleep
+      - light_sleep.allow: lamp_light_sleep
+
+# main script to determine whether to go into sleeo or not
+# no_sleep: if USB or OTA update in progress
+# deep_sleep: if on battery and light is off
+# light_sleep: if on battery and light is on
+script:
+  - id: manage_sleep_state
+    mode: single
+    then:
+      - delay: 100ms # Keep this initial delay for sensor settling
+      - if:
+          condition:
+            - or:
+                - binary_sensor.is_on: detected_usb
+                - lambda: "return id(is_ota_active_flag);"
+                - binary_sensor.is_on: prevent_sleep
+          then:
+            - logger.log: "DEBUG: Sleep Manager: Staying awake (USB or OTA or sleep-prevent are active)."
+          else:
+            - if:
+                condition:
+                  - light.is_off: lamp2
+                then:
+                  - logger.log: "DEBUG: Sleep Manager: Entering Deep Sleep in 15sec (Lamp OFF, No USB/OTA, No sleep-prevent)."
+                  - text_sensor.template.publish:
+                      id: lamp_sleep_state
+                      state: "Deep Sleep"
+                  - delay: 15s
+                  - script.execute: enter_deep_sleep_with_dual_wake_low_level
+                  # - deep_sleep.enter: lamp_deep_sleep
+                else:
+                  - logger.log: "DEBUG: Sleep Manager: Entering Light Sleep in 15sec (Lamp ON, No USB/OTA,No sleep-prevent)."
+                  - text_sensor.template.publish:
+                      id: lamp_sleep_state
+                      state: "Light Sleep"
+                  - delay: 15s
+                  - script.execute: enter_light_sleep_with_dual_wake
+                  # - light_sleep.enter: lamp_light_sleep
+                  # - lambda: esp_light_sleep_start();
+                  - text_sensor.template.publish: # waking from light sleep starts here
+                      id: lamp_sleep_state
+                      state: "Awake"
+
+  # LIGHT SLEEP configure wakeup mode and enter sleep. modes not supported natively by esphome
+  - id: enter_light_sleep_with_dual_wake #esphome does not natively support the required wake options
+    then:
+      - lambda: |
+          // 1. Disable all previous wake-ups to ensure a clean slate
+          esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+
+          // 2. Enable Touch Wake-up (GPIO32, based on your sensors.yaml)
+          esp_sleep_enable_touchpad_wakeup(); 
+
+          // 3. Enable EXT1 Wake-up (GPIO15, using ALL_LOW mode for USB detection)
+          // The mask (1ULL << 15) is 2^15, targeting GPIO15.
+          uint64_t ext1_mask = (1ULL << 15);
+          esp_sleep_enable_ext1_wakeup(ext1_mask, ESP_EXT1_WAKEUP_ALL_LOW);
+
+          ESP_LOGI("light_sleep_ctrl", "Enabling dual-wake sources and entering Light Sleep.");
+
+          // 4. Initiate Light Sleep
+          esp_light_sleep_start();
+
+  # DEEP SLEEP configure wakeup mode and enter sleep.  standard config is not waking from touch
+  - id: enter_deep_sleep_with_dual_wake_low_level
+    then:
+      - lambda: |
+          // 1. Disable all previous wake-ups to ensure a clean slate
+          // This is essential for a clean setup.
+          esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+
+          // 2. Enable Touch Wake-up (GPIO32) with a guaranteed low threshold
+          // This bypasses the unreliable high-level ESPHome logic.
+          esp_sleep_enable_touchpad_wakeup(); 
+
+          // 3. Enable EXT1 Wake-up (GPIO15, using ALL_LOW for USB detection)
+          // This ensures your working USB wakeup is also configured by the reliable low-level path.
+          uint64_t ext1_mask = (1ULL << 15);
+          esp_sleep_enable_ext1_wakeup(ext1_mask, ESP_EXT1_WAKEUP_ALL_LOW);
+
+          // 4. Set the Touch Wakeup Threshold to a reliable, low value.
+          // Since the high-level configuration failed, we set the absolute lowest reliable value here.
+          // NOTE: Adjust 200 based on your raw idle value, but 200 is a safe start.
+          // This is the missing step that the ESPHome component failed to execute correctly.
+          // touch_pad_set_thresh(id(lamp_touch_sensor).get_pad_num(), 200); 
+
+          ESP_LOGI("deep_sleep_ctrl", "Enabling dual-wake sources and entering Deep Sleep.");
+
+          // 5. Initiate Deep Sleep (full reboot upon wake)
+          esp_deep_sleep_start();
+
+# try to go into sleep.
+interval:
+  - interval: 60s
+    then:
+      - logger.log: "DEBUG: interval timer triggered, checking last user event timer."
+      - if:
+          condition:
+            - lambda: "return millis() - id(last_user_event_time) > 20000;"
+          then:
+            - logger.log: "DEBUG: last user event timer expired, managing sleep state."
+            - script.execute: manage_sleep_state

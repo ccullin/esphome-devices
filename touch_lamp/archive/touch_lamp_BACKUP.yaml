@@ -1,0 +1,109 @@
+esphome:
+  name: touch_lamp
+  includes:
+    - <esp_sleep.h>
+    - <driver/ledc.h>
+    - <soc/clk_tree_defs.h>
+  on_boot:
+      priority: 80 # Ensure this runs after components initialize
+      then:
+        - lambda: |-
+            ESP_LOGD("Boot", "!!! BOOT LAMBDA EXECUTED !!!");
+            id(lamp2).turn_on();
+
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    version: 5.4.1
+
+
+logger:
+  level: VERY_VERBOSE
+  logs:
+    # Increase logging level for the light component itself
+    light: VERY_VERBOSE # Use VERY_VERBOSE to see more internal details
+    # Also keep logging for your custom output for comparison
+    my_custom_led_output: VERY_VERBOSE # This is your custom tag from ledc_sleep.cpp
+
+
+globals:
+  - id: current_brightness_index # Unique ID for the global variable
+    type: int                    # We'll store an integer (0, 1, or 2)
+    initial_value: '0'           # Start at the lowest brightness level (index 0) on first boot
+    restore_value: no           # Restore the last saved index after a restart/power cycle
+
+esp32_touch:
+  setup_mode: FALSE
+
+
+binary_sensor:
+  - platform: esp32_touch
+    id: lamp_touch_sensor # Unique ID for your touch sensor
+    pin: GPIO15
+    threshold: 800
+    on_press:
+      then:
+        - light.turn_on: lamp2
+        - lambda: |-
+            ESP_LOGD("touch_control", "!!! ON_PRESS LAMBDA EXECUTED !!!");
+            
+            // Define your brightness levels as a list of floats (0.0 to 1.0)
+            std::vector<float> brightness_levels = {0.0, 0.25, 0.50, 1.00}; // Off, Low, Medium, High
+
+            // Get the current brightness index from our global variable
+            int current_index = id(current_brightness_index);
+
+            // Calculate the next index, cycling back to 0 after the last level
+            // The modulo operator (%) correctly handles cycling through 0, 1, 2, 3, then back to 0.
+            current_index = (current_index + 1) % brightness_levels.size();
+
+            // Get the actual brightness value for the new index
+            float new_brightness = brightness_levels[current_index];
+
+            // Turn the light ON to the new brightness level. with 0 the light will effectively turn off.
+            id(lamp2).turn_on().set_brightness(new_brightness).perform();
+            // id(my_custom_led_output).write_state(new_brightness);
+
+            // Store the new index in the global variable so it's remembered for the next touch
+            id(current_brightness_index) = current_index;
+
+            ESP_LOGD("touch_control", "Touch detected. New brightness level: %.2f (Index %d)", new_brightness, current_index);
+
+
+
+
+output:
+  - platform: ledc_sleep # <-- Your new custom output platform name
+    id: my_custom_led_output # unique name referenced in automations
+    pin: GPIO13
+    frequency: 500Hz    
+    resolution: 10         
+    clk_cfg: RC_FAST_CLK   # RC_FAST_CLK for LIGHT_SLEEP
+    sleep_mode: KEEP_ALIVE  # KEEP_ALIVE for LIGHT_SLEEP
+
+light:
+  - platform: monochromatic
+    # name: "lamp2" # This is the name that appears in Home Assistant
+    id: lamp2 # used for automations
+    output: my_custom_led_output # <-- References the ID of your custom output
+    # restore_mode: RESTORE_DEFAULT_ON # Or RESTORE_DEFAULT_OFF, RESTORE_LAST_ON, etc.
+    # If you want it to flash at a specific brightness right away:
+    # default_brightness: 0.5 # Sets the initial brightness to 50%
+    # Optional: transition_length for smooth dimming
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF # turn the lamp on at boot up for testing.  Default is ALWAYS_OFF
+
+
+# interval:
+#   - interval: 20s
+#     then:
+#       - lambda: |-        
+#           // Configure wakeup source: timer 10 seconds from now
+#           esp_sleep_enable_timer_wakeup(10 * 1000000ULL);
+          
+#           // Enter light sleep
+#           ESP_LOGI("main", "Entering light sleep for 10 seconds...");
+#           esp_light_sleep_start();
+#           ESP_LOGI("main", "Woke up from light sleep!");

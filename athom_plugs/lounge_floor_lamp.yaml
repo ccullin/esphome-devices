@@ -1,0 +1,11 @@
+# smart plug .yaml
+
+substitutions:
+  area: "lounge"
+  node_id: "lounge-floor-lamp"
+  friendly_name: "Floor Lamp"
+
+  relay_id: "${node_id}"
+  relay_name: "${friendly_name}"
+
+<<: !include common.yaml

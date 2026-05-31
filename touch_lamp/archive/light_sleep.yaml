@@ -1,0 +1,130 @@
+esphome:
+  name: light_sleep
+  platformio_options:
+    platform:
+      - https://github.com/platformio/platform-espressif32.git
+    platform_packages:
+      - pioarduino/framework-espidf@https://github.com/pioarduino/esp-idf/releases/download/v5.5.0.20250510/esp-idf-v5.5.0.zip
+
+  board: esp32dev
+  framework:
+    type: esp-idf
+    version: 5.4.1 # 5.4.1
+
+external_components:
+  - source: custom_components
+    components: [ledc_sleep, light_sleep]
+    # components: [light_sleep]
+
+logger:
+  level: VERY_VERBOSE # Keep DEBUG to see all relevant messages
+
+globals:
+  - id: current_brightness_index # Unique ID for the global variable
+    type: int # We'll store an integer (0, 1, or 2)
+    initial_value: "0" # Start at the lowest brightness level (index 0) on first boot
+
+# Define deep_sleep settings, which are used by light_sleep for wakeup methods
+# deep_sleep:
+#   id: my_deep_sleep_config
+#   sleep_duration: 15s # Timer wakeup
+
+light_sleep:
+  id: my_light_sleep_config
+  touch_wakeup: true
+  # wakeup_pin:
+  #   number: GPIO33
+  #   allow_other_uses: true
+  # esp32_ext1_wakeup:
+  #   pins:
+  #     - number: 32 # touchpad
+  #     - number: 33 # usb_sensor
+  #       allow_other_uses: true
+  # mode: ANY_HIGH
+
+output:
+  - platform: ledc_sleep
+    pin: GPIO23 # Standard onboard LED pin for many ESP32 dev boards
+    id: lamp2
+    frequency: 100hz
+    resolution: 10
+
+    clk_cfg: RC_FAST_CLK # RC_FAST_CLK
+    sleep_mode: KEEP_ALIVE
+
+# Simple light to indicate awake state (using onboard LED)
+light:
+  - platform: monochromatic
+    output: lamp2
+    name: "Onboard LED"
+    id: onboard_led
+    default_transition_length: 0s
+
+# config/sensors.yaml
+
+#touch Sensor
+esp32_touch:
+  setup_mode: FALSE
+  # iir_filter: 10ms
+
+binary_sensor:
+  - platform: esp32_touch
+    id: lamp_touch_sensor # Unique ID for your touch sensor
+    pin: GPIO32
+    threshold: 1200
+    wakeup_threshold: 1000
+    on_press:
+      then:
+        - light.turn_on: onboard_led
+        - lambda: |-
+            ESP_LOGD("touch_control", "!!! ON_PRESS LAMBDA EXECUTED !!!");
+
+            // Define your brightness levels as a list of floats (0.0 to 1.0)
+            std::vector<float> brightness_levels = {0.0, 0.25, 0.50, 1.00}; // Off, Low, Medium, High
+
+            // Get the current brightness index from our global variable
+            int current_index = id(current_brightness_index);
+
+            // Calculate the next index, cycling back to 0 after the last level
+            // The modulo operator (%) correctly handles cycling through 0, 1, 2, 3, then back to 0.
+            current_index = (current_index + 1) % brightness_levels.size();
+
+            // Get the actual brightness value for the new index
+            float new_brightness = brightness_levels[current_index];
+
+            // Turn the light ON to the new brightness level. with 0 the light will effectively turn off.
+            id(onboard_led).turn_on().set_brightness(new_brightness).perform();
+            // id(my_custom_led_output).write_state(new_brightness);
+
+            // Store the new index in the global variable so it's remembered for the next touch
+            id(current_brightness_index) = current_index;
+
+            ESP_LOGD("touch_control", "Touch detected. New brightness level: %.2f (Index %d)", new_brightness, current_index);
+
+  # usb power sensor
+  # - platform: gpio
+  #   pin:
+  #     number: GPIO33 # Replace with your actual USB VBUS detection pin
+  #     # allow_other_uses: true
+  #     mode:
+  #       input: true
+  #       pulldown: true # this ensures battery is default unless USB definitevly connected.
+  #   name: "USB Sensor"
+  #   id: usb_sensor
+  # on_state:
+  #   then:
+  #     - script.execute: manage_sleep_state
+  #     - logger.log: "DEBUG: USB Connected state changed. Re-evaluating sleep."
+
+interval:
+  - interval: 20s
+    then:
+      - logger.log: "INFO: interval timer. Will enter light sleep in 1 seconds."
+      - delay: 1s
+      - light_sleep.enter:
+          id: my_light_sleep_config
+          # sleep_duration: 20s
+      - logger.log: "INFO: waking from light sleep."
+      # - light.dim_relative:
+      #     id: onboard_led
+      #     relative_brightness: 20%

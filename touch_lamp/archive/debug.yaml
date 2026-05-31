@@ -1,0 +1,73 @@
+esphome:
+  name: debug
+  platformio_options:
+    platform:
+      - https://github.com/platformio/platform-espressif32.git
+    platform_packages:
+      - pioarduino/framework-espidf@https://github.com/pioarduino/esp-idf/releases/download/v5.5.0.20250510/esp-idf-v5.5.0.zip
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    version: 5.4.1 # 5.4.1
+
+# external_components:
+#   - source: custom_components
+#     components: [ledc_sleep]
+
+logger:
+  level: VERY_VERBOSE # Keep DEBUG to see all relevant messages
+
+# Define deep_sleep settings, which are used by light_sleep for wakeup methods
+deep_sleep:
+  id: my_sleep_config
+  sleep_duration: 15s # Timer wakeup
+
+output:
+  - platform: ledc
+    pin: GPIO2 # Standard onboard LED pin for many ESP32 dev boards
+    id: onboard_led_output
+    # frequency: 500Hz
+    # resolution: 10
+    # clk_cfg: RC_FAST_CLK
+    # sleep_mode: KEEP_ALIVE
+
+# Simple light to indicate awake state (using onboard LED)
+light:
+  - platform: binary
+    output: onboard_led_output
+    name: "Onboard LED"
+    id: onboard_led
+
+# Script to initiate light sleep
+script:
+  - id: enter_light_sleep_script
+    then:
+      - logger.log: "INFO: Preparing to enter light sleep (Step 1 - Before delay)."
+      - delay: 1s # Keep this delay for now
+      - logger.log: "INFO: Preparing to enter light sleep (Step 2 - After delay, before lambda)."
+      - delay: 1s
+      - lambda: |-
+          // #include <esp_sleep.h>
+          ESP_LOGD("main", "--- Inside lambda, about to setup sleep ---");
+          ESP_LOGD("main", "--- Step 1: call esp_sleep_enable_timer_wakeup() ---");
+            sleep(1);
+            uint64_t sleep_duration = id(my_sleep_config).get_sleep_duration_us().value().perform();
+            ESP_LOGD("main", "--- Retrieved sleep duration from config: %llu us ---", sleep_duration);
+            esp_sleep_enable_timer_wakeup(sleep_duration);
+          ESP_LOGD("main", "--- Step 3: about to call esp_light_sleep_start() ---");
+            sleep(1);
+            esp_light_sleep_start();
+          // esp_deep_sleep_start();
+
+          // note deep_sleep boots aftet wake.
+          ESP_LOGD("main", "--- Woke up from light sleep! ---");
+      - light.turn_on: onboard_led # Turn LED on to confirm wakeup (runs after lambda returns)      - light.turn_on: onboard_led # Turn LED on to confirm wakeup
+
+interval:
+  - interval: 20s
+    then:
+      - logger.log: "INFO: interval timer. Will enter light sleep in 5 seconds."
+      - delay: 5s
+      - script.execute: enter_light_sleep_script

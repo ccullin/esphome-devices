@@ -1,0 +1,441 @@
+substitutions:
+  area: "lounge"
+  node_id: "lounge-room-sensor"
+  friendly_name: "Room Sensor"
+
+  # PINS ASSIGNED
+  green_led_pin: GPIO12
+  orange_red_led_pin: GPIO13
+  fan_mosfet_pin: GPIO14
+  # INPUT PINS
+  # photodiode_pin: GPIO36
+
+esphome:
+  area: "${area}"
+  name: "${node_id}"
+  friendly_name: ${friendly_name}
+
+  on_boot:
+    then:
+      - script.execute: status_blink_fast
+
+esp32:
+  board: lolin_s2_mini
+  variant: esp32s2
+  framework:
+    type: esp-idf
+
+external_components:
+  - source: custom_components
+    components: [gpio_tristate]
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  power_save_mode: none
+  # output_power: 20.5dB
+  on_connect:
+    then:
+      - script.stop: status_blink_fast
+      # - light.turn_on: green_led
+      # - delay: 10s
+      - light.turn_off: green_led
+  ap: {}
+
+captive_portal:
+
+web_server:
+  port: 80
+
+api:
+
+# ----------------------------------------------------
+# 1. OUTPUT DEFINITIONS
+# ----------------------------------------------------
+output:
+  - platform: gpio
+    id: status_output # onboard LED blink during boot
+    pin:
+      number: GPIO15
+
+  - platform: gpio
+    id: green_led_output
+    pin: ${green_led_pin}
+    inverted: True
+
+  ## define Tristate Output
+  - platform: gpio_tristate
+    id: tristate_led_output
+    pin: ${orange_red_led_pin}
+
+  - platform: gpio
+    id: fan_output
+    pin: ${fan_mosfet_pin}
+
+# ----------------------------------------------------
+# 2. FAN SWITCH & DEBUG SWITCHES
+# ----------------------------------------------------
+switch:
+  # Tri-State RED LED Control
+  - platform: template
+    name: "Red LED"
+    id: red_led_switch
+    turn_on_action:
+      # Sets output to 0.0 (LOW/SINK = RED)
+      - output.set_level:
+          id: tristate_led_output
+          level: 0.0
+    turn_off_action:
+      # Sets output to 0.5 (FLOAT/OFF)
+      - output.set_level:
+          id: tristate_led_output
+          level: 0.5
+
+  # Tri-State ORANGE LED Control
+  - platform: template
+    name: "Orange LED"
+    id: orange_led_switch
+    turn_on_action:
+      # Sets output to 1.0 (HIGH/SOURCE = ORANGE)
+      - output.set_level:
+          id: tristate_led_output
+          level: 1.0
+    turn_off_action:
+      # Sets output to 0.5 (FLOAT/OFF)
+      - output.set_level:
+          id: tristate_led_output
+          level: 0.5
+
+  # LD2410 Engineering Mode Switch
+  - platform: ld2410
+    engineering_mode:
+      name: "Engineering Mode"
+# ----------------------------------------------------
+# 3. IMMEDIATE READ BUTTON
+# ----------------------------------------------------
+button:
+  - platform: template
+    name: "${friendly_name} Read Air Quality Now"
+    id: read_now_button
+    on_press:
+      - script.execute: pm25_manual_trigger
+
+  - platform: ld2410
+    factory_reset:
+      name: Factory reset
+    restart:
+      name: Restart
+    query_params:
+      name: Query params
+
+# ----------------------------------------------------
+# 4. LIGHT COMPONENTS
+# ----------------------------------------------------
+light:
+  # Onboard LED
+  - platform: binary
+    id: status_led
+    name: "${device_location} Status LED"
+    output: status_output
+
+  # PM2.5 Green Status LEDs
+  - platform: binary
+    id: green_led
+    name: "Green LED Status"
+    output: green_led_output
+
+# ----------------------------------------------------
+# 5. I2C/UART CONFIGURATIONS
+# ----------------------------------------------------
+i2c:
+  sda: GPIO33
+  scl: GPIO21
+  frequency: 50kHz
+
+uart:
+  - id: uart_pm25
+    rx_pin: GPIO05
+    tx_pin: GPIO04
+    baud_rate: 9600
+    parity: none
+    stop_bits: 1
+
+  - id: uart_ld2410
+    rx_pin: GPIO16 # Connect to LD2410 TX pin
+    tx_pin: GPIO17 # Connect to LD2410 RX pin
+    baud_rate: 256000 # LD2410 uses 256000 baud
+    parity: none
+    stop_bits: 1
+
+# ----------------------------------------------------
+# 6. SENSOR DEFINITIONS
+# ----------------------------------------------------
+sensor:
+  # BME280
+  - platform: bme280_i2c
+    address: 0x76
+    temperature:
+      name: "Temperature"
+      id: temperature
+      unit_of_measurement: "°C"
+      accuracy_decimals: 1
+      oversampling: 16x
+      state_class: measurement
+      filters:
+        - throttle: 5min
+        - offset: -3
+    pressure:
+      name: "Air Pressure"
+      id: pressure
+      unit_of_measurement: "hPa"
+      accuracy_decimals: 1
+      oversampling: 16x
+      state_class: measurement
+      filters:
+        - throttle: 5min
+    humidity:
+      name: "Humidity"
+      id: "humidity"
+      unit_of_measurement: "%"
+      accuracy_decimals: 1
+      oversampling: 16x
+      state_class: measurement
+      filters:
+        - throttle: 5min
+    update_interval: 60s
+
+  # PM1006
+  - platform: pm1006
+    uart_id: uart_pm25
+    id: pm25
+    pm_2_5:
+      name: "PM2.5"
+      id: "air_quality"
+      unit_of_measurement: "µg/m³"
+      state_class: measurement
+      on_value:
+        then:
+          - script.execute: read_and_set_pm_status
+      # filters:
+      #   - sliding_window_moving_average:
+      #       window_size: 5
+      #       send_every: 5
+    # update_interval: 20s
+
+  - platform: ld2410
+    g0:
+      move_energy: { name: "G0 Move" }
+      still_energy: { name: "G0 Still" }
+    g1:
+      move_energy: { name: "G1 Move" }
+      still_energy: { name: "G1 Still" }
+    g2:
+      move_energy: { name: "G2 Move" }
+      still_energy: { name: "G2 Still" }
+    g3:
+      move_energy: { name: "G3 Move" }
+      still_energy: { name: "G3 Still" }
+    g4:
+      move_energy: { name: "G4 Move" }
+      still_energy: { name: "G4 Still" }
+    g5:
+      move_energy: { name: "G5 Move" }
+      still_energy: { name: "G5 Still" }
+    g6:
+      move_energy: { name: "G6 Move" }
+      still_energy: { name: "G6 Still" }
+    g7:
+      move_energy: { name: "G7 Move" }
+      still_energy: { name: "G7 Still" }
+    g8:
+      move_energy: { name: "G8 Move" }
+      still_energy: { name: "G8 Still" }
+
+# ----------------------------------------------------
+# 7. LD2410 presence sensor
+# ----------------------------------------------------
+ld2410:
+  id: my_ld2410
+  uart_id: uart_ld2410
+  # thresholds:
+  #   - gate: 0
+  #     move_threshold: 100
+  #     still_threshold: 100
+  #   - gate: 1
+  #     move_threshold: 100
+  #     still_threshold: 100
+  #   - gate: 2
+  #     move_threshold: 50
+  #     still_threshold: 40
+  #   - gate: 3
+  #     move_threshold: 50
+  #     still_threshold: 40
+  #   - gate: 4
+  #     move_threshold: 40
+  #     still_threshold: 30
+  #   - gate: 5
+  #     move_threshold: 40
+  #     still_threshold: 30
+  #   # Gates 6-8 will use factory defaults unless specified
+
+binary_sensor:
+  - platform: ld2410
+    has_target:
+      name: "Presence"
+    has_moving_target:
+      name: "Motion"
+    has_still_target:
+      name: "Still Presence"
+    out_pin_presence_status:
+      name: "pin presence"
+
+# ----------------------------------------------------
+# 8. LD2410 Tuning Controls
+# ----------------------------------------------------
+number:
+  # create slider bars on Home Assistant
+  - platform: ld2410
+    timeout:
+      name: "Presence Timeout"
+    max_move_distance_gate:
+      name: "Max Move Distance"
+    max_still_distance_gate:
+      name: "Max Still Distance"
+    g0:
+      move_threshold:
+        name: "G0 Move threshold"
+      still_threshold:
+        name: "G0 Still Threshold"
+    g1:
+      move_threshold:
+        name: "G1 Move Threshold"
+      still_threshold:
+        name: "G1 Still Threshold"
+    g2:
+      move_threshold:
+        name: "G2 Move Threshold"
+      still_threshold:
+        name: "G2 Still Threshold"
+
+# 3. Select Config
+select:
+  - platform: ld2410
+    distance_resolution:
+      name: "Distance Resolution"
+
+# old LD2410 on/off config
+# binary_sensor:
+#   - platform: gpio
+#     pin:
+#       number: GPIO18
+#     name: "${device_location} Radar Presence"
+#     device_class: presence
+#     filters:
+#       - delayed_on: 250ms
+#       - delayed_off: 250ms
+
+# ----------------------------------------------------
+# 8. TIME AND INTERVAL AUTOMATION (30-Second LED Test)
+# ----------------------------------------------------
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Australia/Sydney
+    update_interval: 1h
+
+interval:
+  - interval: 1h
+    then:
+      - script.execute: pm25_manual_trigger
+
+# ----------------------------------------------------
+# 9. SCRIPTS (The Core Logic)
+# ----------------------------------------------------
+script:
+  # Status LED Blinking
+  - id: status_blink_fast
+    mode: restart
+    then:
+      - light.turn_on: green_led
+      - delay: 100ms
+      - light.turn_off: green_led
+      - delay: 400ms
+      - script.execute: status_blink_fast
+
+  # Main PM2.5 Reading and LED Setting Script
+  - id: pm25_manual_trigger
+    then:
+      - logger.log: "Starting air quality check cycle."
+      # Step 1: Turn the Fan ON (Necessary for VINDRIKTNING sensor)
+      - output.turn_on: fan_output
+      - delay: 10s
+
+      # Step 2: Force the sensor to report its current (fresh) reading
+      - component.update: pm25
+
+  - id: read_and_set_pm_status
+    then:
+      - output.turn_off: fan_output
+      - logger.log:
+          format: "T+~10s: PM2.5 Value Retrieved: %.2f µg/m³"
+          args: ["id(air_quality).state"]
+
+      # Step 3:  set LED level
+      # Turn OFF LEDs
+      - light.turn_off: green_led # Clear Green state
+      - switch.turn_off: red_led_switch # turns off orange and red as its a tristate pin
+
+      # Green (Normal: PM2.5 < 12.0) - FLOAT state
+      - if:
+          condition:
+            lambda: "return id(air_quality).has_state() && id(air_quality).state < 12.0;"
+          then:
+            - light.turn_on: green_led
+            - logger.log: "Air Quality: NORMAL (Green LED ON, OR/R OFF)"
+
+      # Orange (Moderate: 12.0 <= PM2.5 < 35.5)
+      - if:
+          condition:
+            lambda: "return id(air_quality).has_state() && id(air_quality).state >= 12.0 && id(air_quality).state < 35.5;"
+          then:
+            - switch.turn_on: red_led_switch
+            - logger.log: "Air Quality: MODERATE (Orange LED ON)"
+
+      # Red (High: PM2.5 >= 35.5) - SINK Current state
+      - if:
+          condition:
+            lambda: "return id(air_quality).has_state() && id(air_quality).state >= 35.5;"
+          then:
+            - switch.turn_on: red_led_switch
+            - logger.log: "Air Quality: HIGH (Red LED ON)"
+
+      # Step 4: Turn Fan OFF
+      - logger.log:
+          "Air quality check complete."
+          # Step 3:  set LED level
+      # Turn OFF LEDs
+      - delay: 10s
+      - light.turn_off: green_led # Clear Green state
+      - switch.turn_off: red_led_switch # turns off orange and red as its a tristate pin
+      - logger.log: "Script finished."
+
+# ----------------------------------------------------
+# 10. LOGGER & OTA
+# ----------------------------------------------------
+logger:
+  level: DEBUG # This is your default global log level
+  # Define specific components you want to make more verbose:
+  logs:
+    # Set logging for the internal framework related to binary sensors:
+    binary_sensor: DEBUG
+    # If debugging the raw GPIO pin readings is needed:
+    gpio: DEBUG
+    # Example for the PM1006 sensor framework:
+    pm1006: DEBUG
+    # To silence specific noisy components:
+    # component_name.sub_component_name: WARN
+    uart: DEBUG
+
+ota:
+  platform: esphome

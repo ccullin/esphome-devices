@@ -1,0 +1,16 @@
+# config/usb.yaml
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO12 # Replace with your actual USB VBUS detection pin
+      inverted: true # the 3.3v input from the battery will drive this, so its inverted.
+      mode:
+        input: true
+        pullup: true # this ensures battery is default unless USB definitevly connected.
+    name: "USB Sensor"
+    id: usb_sensor
+    on_state:
+      then:
+        - script.execute: manage_sleep_state
+        - logger.log: "DEBUG: USB Connected state changed. Re-evaluating sleep."

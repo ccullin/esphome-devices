@@ -1,0 +1,29 @@
+# config/light.yaml
+
+output:
+  - platform: ledc_sleep # <-- Your new custom output platform name
+    id: my_custom_led_output # unique name referenced in automations
+    pin: GPIO33
+    frequency: 500Hz
+    resolution: 10
+    clk_cfg: RC_FAST_CLK # RC_FAST_CLK for LIGHT_SLEEP
+    sleep_mode: KEEP_ALIVE # KEEP_ALIVE for LIGHT_SLEEP
+  # - platform: ledc
+  #   id: onboard_led
+  #   pin: GPIO2
+  #   max_power: 0.2
+
+light:
+  - platform: monochromatic
+    name: "lamp2"
+    id: lamp2
+    output: my_custom_led_output
+    default_transition_length: 0s
+    restore_mode: RESTORE_DEFAULT_OFF
+    # initial_state:
+    #   state: ON
+    #   brightness: 50%
+  # - platform: binary
+  #   id: sleep_indicator
+  #   internal: true
+  #   restore_mode: ALWAYS_ON

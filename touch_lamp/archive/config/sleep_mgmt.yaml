@@ -1,0 +1,40 @@
+# config/sleep.yaml
+
+# esp32_light_sleep:
+#   id: my_light_sleep_component
+
+# main script to determine whether to go into sleeo or not
+# no_sleep: if USB or OTA update in progress
+# deep_sleep: if on battery and light is off
+# light_sleep: if on battery and light is on
+script:
+  - id: manage_sleep_state
+    mode: single
+    then:
+      - if:
+          condition:
+            - or:
+                - binary_sensor.is_on: usb_sensor
+                # - id(usb_sensor).is_on()
+                - id(ota).is_updating()
+                # - id(sleep_prevent_flag).state
+                # - ota.deep_sleep.prevent: my_ota
+          then:
+            - logger.log: "DEBUG: Sleep Manager: Staying awake (USB/OTA/Prevent Active)."
+          else:
+            - if:
+                condition:
+                  - id(lamp2).is_on()
+                then:
+                  - logger.log: "DEBUG: Sleep Manager: Entering Deep Sleep (Lamp OFF, No USB/OTA, Allowed)."
+                  - deep_sleep.enter: deep_sleep_control
+                else:
+                  - logger.log: "DEBUG: Sleep Manager: Entering Light Sleep (Lamp ON, No USB/OTA, Allowed)."
+                  # - esp32_light_sleep.enter:
+                  #     id: my_light_sleep_component
+
+# try to go into sleep every 10sec.
+interval:
+  - interval: 10s
+    then:
+      - script.execute: manage_sleep_state
