@@ -1,2 +1,11 @@
-*.pyc
+
+**/secrets.yaml
+/venv/
+
+# Safely ignore all hidden files/folders except the current/parent directory
+**/.[a-zA-Z0-9]*
+
+
+__pycache__/
+__init__.py
 .DS_Store
