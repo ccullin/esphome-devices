@@ -14,6 +14,7 @@ esphome:
   #   - https://github.com/platformio/platform-espressif32.git
   # platform_packages:
   #   - pioarduino/framework-espidf@https://github.com/pioarduino/esp-idf/releases/download/v5.5.0.20250510/esp-idf-v5.5.0.zip
+
   on_boot:
     # The 'then' block defines the actions to be performed on every device boot
     then:
@@ -30,12 +31,19 @@ esp32:
   board: esp32dev
   framework:
     type: esp-idf
-    version: 5.5.0
+    # version: 5.5.0
+    # components:
+    #   - name: espressif/mdns
+    #     ref: ">=1.0.0"
+    # components:
+    #   - espressif/mdns^1.3.5
+    #   - name: esphome
+    #     path: . # Use local version of ESPHome for development
 
 external_components:
-  - source: custom_components
-    # components: [ledc_sleep]
+  - source: external_components
     components: [ledc_sleep, light_sleep]
+    # components: [ledc_sleep]
 
 logger:
   level: VERBOSE
@@ -55,6 +63,9 @@ wifi:
   power_save_mode: NONE
   output_power: 20.5db
   ap: {}
+
+mdns:
+  disabled: true
 
 captive_portal:
 

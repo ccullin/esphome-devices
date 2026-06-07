@@ -1,4 +1,4 @@
-#!/Users/chriscullin/Code/esphome-devices/venv/bin/python
+#!/Users/chriscullin/Code/esphome-devices/venv/bin/python3.12
 
 # Copyright (c) 2011-2018 Alexander Belchenko
 # All rights reserved.

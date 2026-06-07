@@ -2,6 +2,8 @@
 
 ## expressif esp-idf framework
 
+**update** as of June-2026 I had to update the customisations due to esphoem and esp-idf changes and I needed to compile with esphome compile ... --toolchain esp-idf, which uses the esp-idf tool chain rather than the default platfromio toolchain.  there appears to be be a bug in platfomio where some dependacies are not installed, atleast on my new macos build.  I am currently not specifying and esp-idf version and the lastest esphome home 2026.5.1 includes 5.5.4, which should be compatibale with the customisations.
+
 version 5.5.0 is required for LEDC support of the RTC compatible clock and ledc sleep mode. as of June 2025 this was not available in the defaults version of esphome.
 
 esphome:

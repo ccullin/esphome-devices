@@ -60,7 +60,7 @@ binary_sensor:
         pulldown: true # this ensures battery is default unless USB definitively connected.
       # allow_other_uses: true
       inverted: true
-    on_state_change:
+    on_state:
       then:
         - lambda: "id(last_user_event_time) = millis();"
         - logger.log: "DEBUG: User event (USB state change) detected. Resetting sleep timer."

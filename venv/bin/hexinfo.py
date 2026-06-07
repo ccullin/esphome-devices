@@ -1,4 +1,4 @@
-#!/Users/chriscullin/Code/esphome-devices/venv/bin/python
+#!/Users/chriscullin/Code/esphome-devices/venv/bin/python3.12
 
 # Copyright (c) 2015 Andrew Fernandes <andrew@fernandes.org>
 # All rights reserved.

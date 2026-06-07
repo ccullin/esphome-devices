@@ -1,4 +1,4 @@
-#!/Users/chriscullin/Code/esphome-devices/venv/bin/python
+#!/Users/chriscullin/Code/esphome-devices/venv/bin/python3.12
 # -*- coding: utf-8 -*-
 from __future__ import print_function
 """
